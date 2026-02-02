@@ -1,0 +1,26 @@
+{
+  "dependencies": {
+    "express": "^5.2.1"
+  },
+  "name": "144_webreport",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cauchyschwarz192837/webReport_BugilHCI.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/cauchyschwarz192837/webReport_BugilHCI/issues"
+  },
+  "homepage": "https://github.com/cauchyschwarz192837/webReport_BugilHCI#readme"
+}

@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+  <body>
+    <h1>Research Log</h1>
+
+    <h2>Write / Update</h2>
+    <label>
+      Date:
+      <input id="date" type="date" />
+    </label>
+    <br/><br/>
+    <textarea id="text" rows="10" cols="80" placeholder="What did you do today? Results? Next steps?"></textarea>
+    <br/>
+    <button id="save">Save</button>
+
+    <hr/>
+
+    <h2>View</h2>
+    <label>
+      Date:
+      <input id="viewDate" type="date" />
+    </label>
+    <button id="load">Load</button>
+    <pre id="out"></pre>
+
+    <script>
+      function todayISO() {
+        // type="date" use date format YYYY-MM-DD
+        const d = new Date();
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        return `${yyyy}-${mm}-${dd}`;
+      }
+
+      // default
+      document.getElementById("date").value = todayISO();
+      document.getElementById("viewDate").value = todayISO();
+
+      async function load(date) {
+        const res = await fetch(`/api/log?date=${encodeURIComponent(date)}`);
+        const data = await res.json();
+        const out = document.getElementById("out");
+
+        if (!res.ok) {
+          out.textContent = data.error || "Error";
+          return;
+        }
+
+        out.textContent = data.entry ?? "(no entry for this date)";
+      }
+
+      document.getElementById("save").addEventListener("click", async () => {
+        const date = document.getElementById("date").value;
+        const text = document.getElementById("text").value;
+
+        const res = await fetch("/api/log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date, text }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(data.error || "Save failed");
+          return;
+        }
+
+        alert(`Saved entry for ${date}`);
+      });
+
+      document.getElementById("load").addEventListener("click", async () => {
+        const date = document.getElementById("viewDate").value;
+        await load(date);
+      });
+
+      load(document.getElementById("viewDate").value);
+    </script>
+  </body>
+</html>

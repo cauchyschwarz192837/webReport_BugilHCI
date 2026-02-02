@@ -2,9 +2,9 @@
 <html>
 	<head>
 		<style>
-		.style5 h2 {
-		display: inline;
-		top: 80px;}
+			.style5 h2 {
+			display: inline;
+			top: 80px;}
 		</style>
 		<title>Home</title>
 		<meta charset="utf-8" />
@@ -33,15 +33,14 @@
 						<ul>
 							<li><a href="index.html">Home</a></li>
 							<li><a href="Objective.html">Objectives</a></li>
-							<li><a href="Research Questions.html">Research Questions</a></li>
+							<li><a href="research_questions.html">Research Questions</a></li>
 							<li><a href="Hypothesis.html">Hypothesis</a></li>
-                            <li><a href="Abstract.html">Abstract</a></li>
                             <li><a href="Methods.html">Methods</a></li>
                             <li><a href="determination of UVB absorbance.html">Determination of SPF</a></li>
                             <li><a href="DPPH Antioxidant Test.html">DPPH Antioxidant Test</a></li>
                             <li><a href="Effect of antioxidants on bacterium exposed to ultraviolet light.html">Effect of antioxidants on bacterium exposed to ultraviolet light</a></li>
                             <li><a href="Effect of antioxidants on hair exposed to ultraviolet light.html">Effect of antioxidants on hair exposed to ultraviolet light</a></li>
-                            <li><a href="Conclusion and Discussion.html">Conclusion and Discussion</a></li>
+                            <li><a href="CandD.html">Conclusion and Discussion</a></li>
                             <li><a href="references.html">References</a></li>
                         </ul>
 					</nav>
@@ -53,6 +52,7 @@
 								<h2>Abstract</h2>
 								<p>Current research on ultraviolet (UV) protection is often focussed on human skin and P\photoprotection of human hair is often neglected because hair is non-living and carcinogenesis of the hair shaft due to UV radiation is not possible. However, human hair is just as vulnerable to damage by UV radiation, and hair photoprotection is important because hair loss resulting from hair damage leaves the skin vulnerable to carcinogenesis, hair damages due to UV radiation can cause aesthetic imperfections in hair, which is of great social significance. The purpose of this research is to investigate the photoprotective capabilities of two flavonoids, quercetin and anthocyanin, and the application of these photoprotective capabilities to human hair. The UVB-absorbances, sun protection factors (SPF) and radical scavenging activities (RSA) of the two flavonoids were determined using the DPPH antioxidant assay. The colony count test was performed and <i>E. coli</i> was exposed to UV radiation with and without quercetin or anthocyanin, and comparison of the numbers of colony-forming units on plates without anthocyanin or quercetin, with plates with anthocyanin and quercetin, allowed for a gauge of the photoprotective capabilities of the two flavonoids. As further work, the tensile strength of the hair samples is to be determined using a universal testing machine (UTM) before and after UV irradiation. Both flavonoids had high UVB-absorbances, SPFs and RSAs, but that of quercetin was much higher. Both flavonoids protected <i>E. coli</i> from UV radiation but no comparison between the photoprotective capabilities of the two flavonoids could be made.</p>
 							</header>
+
 							<section class="tiles">
 								<article class="style1">
 									<span class="image">
@@ -80,7 +80,7 @@
 									<span class="image">
 										<img src="images/fields_of_math.jpg" alt="" />
 									</span>
-									<a href="Research%20Questions.html">
+									<a href="research_questions.html">
 										<h2>Research Questions</h2>
 										
 									</a>
@@ -159,17 +159,43 @@
 										<h2>references</h2>
 										<div class="content">
 											<p></p>
-</section>
-<br>
-<br>
-</div>
+									</a>
+								</article>
+							</section>
+							<br>
+							<br>
+							<section id = "relog" style="margin-top: 2rem;">
+								<h2>Research Log</h2>
+								<div style="margin-bottom: 1rem;">
+									<h3>Write / Update entry</h3>
+									<label>
+									Date:
+									<input id="logDate" type="date" />
+									</label>
+									<br><br>
+									<textarea id="logText" rows="8" style="width: 100%; max-width: 900px;"
+									placeholder="Write your progress for this date..."></textarea>
+									<br><br>
+									<button id="logSave">Save entry</button>
+									<span id="logSaveStatus" style="margin-left: 1rem;"></span>
+								</div>
+								<hr>
+								<div style="margin-top: 1rem;">
+									<h3>View entry</h3>
+									<label>
+									Date:
+									<input id="viewDate" type="date" />
+									</label>
+									<button id="logLoad">Load</button>
+
+									<pre id="logOut" style="white-space: pre-wrap; background: #f6f6f6; padding: 1rem; max-width: 900px;"></pre>
+								</div>
+							</section>
+					</div>
+
 
 					<footer id="footer">
 						<div class="inner">
-							<section>
-							</section>
-							<section>
-							</section>
 							<ul class="copyright">
 								<li>&copy; Group 1-44 Bugil Academy & Hwa Chong Institution</li>
 							</ul>
@@ -180,3 +206,84 @@
 			<script src="assets/js/skel.min.js"></script>
 			<script src="assets/js/util.js"></script>
 			<script src="assets/js/main.js"></script>
+
+
+			<script>
+			(function () {
+				function todayISO() {
+					const d = new Date();
+					const yyyy = d.getFullYear();
+					const mm = String(d.getMonth() + 1).padStart(2, "0");
+					const dd = String(d.getDate()).padStart(2, "0");
+					return `${yyyy}-${mm}-${dd}`;
+				}
+
+				const logDate = document.getElementById("logDate");
+				const viewDate = document.getElementById("viewDate");
+				const logText = document.getElementById("logText");
+				const out = document.getElementById("logOut");
+				const saveBtn = document.getElementById("logSave");
+				const loadBtn = document.getElementById("logLoad");
+				const status = document.getElementById("logSaveStatus");
+
+				// if the section is not present, do nothing.
+				if (!logDate || !viewDate || !logText || !out || !saveBtn || !loadBtn) {
+					return;
+				}
+
+				logDate.value = todayISO();
+				viewDate.value = todayISO();
+
+				async function loadEntry(date) {
+					status.textContent = "";
+					out.textContent = "Loading...";
+					const res = await fetch(`/api/log?date=${encodeURIComponent(date)}`);
+					const data = await res.json().catch(() => ({}));
+
+					if (!res.ok) {
+						out.textContent = data.error || "Load failed";
+						return;
+					}
+
+					if (data.entry == null) {
+						out.textContent = "(no entry for this date)";
+					} else if (typeof data.entry === "string") {
+						out.textContent = data.entry;
+					} else {
+						out.textContent = data.entry.text ?? JSON.stringify(data.entry, null, 2);
+					}
+				}
+
+				async function saveEntry(date, text) {
+					status.textContent = "Saving...";
+					const res = await fetch("/api/log", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ date, text })
+					});
+
+					const data = await res.json().catch(() => ({}));
+
+					if (!res.ok) {
+						status.textContent = data.error || "Save failed";
+						return;
+					}
+
+					status.textContent = `Saved ${date}`;
+				}
+
+				saveBtn.addEventListener("click", async () => {
+					const date = logDate.value;
+					const text = logText.value;
+					await saveEntry(date, text);
+				});
+
+				loadBtn.addEventListener("click", async () => {
+					const date = viewDate.value;
+					await loadEntry(date);
+				});
+
+				// autoload default today's date
+				loadEntry(viewDate.value);
+			})();
+			</script>
