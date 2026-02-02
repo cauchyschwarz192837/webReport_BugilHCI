@@ -1,4 +1,4 @@
-# Full Web Report (HTML, CSS, JavaScript, Node.js Backend)
+# Full Web Report (HTML, CSS, JavaScript, Node.js and SQLite Backend)
 ## Quercetin and Anthocyanin as Potential Sunscreen Agents for Hair Photoprotection
 
 This is the web report site for a biology experimental research project done at Bugil Academy, South Korea, and Hwa Chong Institution, Singapore.

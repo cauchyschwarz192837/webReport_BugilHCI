@@ -12,6 +12,17 @@
 // /assets/app.js	    Code	  <script>
 // /api/hello	        Data	  JavaScript (fetch)
 
+const Database = require("better-sqlite3");
+const db = new Database("research.db");
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS logs (
+    date TEXT PRIMARY KEY,
+    text TEXT NOT NULL
+  );
+`);
+
+
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -31,8 +42,6 @@ const MIME = {
   ".ico":  "image/x-icon",
 };
 
-const DB_FILE = path.join(__dirname, "db.json");
-
 //----------------------------------------------------------------------
 
 // Parse into js object
@@ -51,10 +60,6 @@ function readDB(cb) {
       cb(e);
     }
   });
-}
-
-function writeDB(db, cb) {
-  fs.writeFile(DB_FILE, JSON.stringify(db, null, 2), "utf8", cb);
 }
 
 function readJsonBody(req, cb) {
@@ -107,19 +112,11 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    readDB((err, db) => {
-      if (err) {
-        res.statusCode = 500;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "DB read failed" }));
-        return;
-      }
+    const row = db.prepare("SELECT date, text FROM logs WHERE date = ?").get(date);
 
-      const entry = db.logs.find((x) => x.date === date) || null;
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/json; charset=utf-8");
-      res.end(JSON.stringify({ date, entry })); // slightly nicer shape
-    });
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.end(JSON.stringify({ date, entry: row ? row.text : null }));
     return;
   }
 
@@ -136,32 +133,14 @@ const server = http.createServer((req, res) => {
         return;
       }
 
-      readDB((err2, db) => {
-        if (err2) {
-          res.statusCode = 500;
-          res.setHeader("Content-Type", "application/json; charset=utf-8");
-          res.end(JSON.stringify({ error: "DB read failed" }));
-          return;
-        }
+      db.prepare(`
+        INSERT INTO logs (date, text) VALUES (?, ?)
+        ON CONFLICT(date) DO UPDATE SET text = excluded.text
+      `).run(date, text.trim());
 
-        const entry = { date, text: text.trim() };
-        const i = db.logs.findIndex((x) => x.date === date);
-        if (i >= 0) db.logs[i] = entry;
-        else db.logs.push(entry);
-
-        writeDB(db, (err3) => {
-          if (err3) {
-            res.statusCode = 500;
-            res.setHeader("Content-Type", "application/json; charset=utf-8");
-            res.end(JSON.stringify({ error: "DB write failed" }));
-            return;
-          }
-
-          res.statusCode = 201;
-          res.setHeader("Content-Type", "application/json; charset=utf-8");
-          res.end(JSON.stringify(entry));
-        });
-      });
+      res.statusCode = 201;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ ok: true, date }));
     });
     return;
   }
