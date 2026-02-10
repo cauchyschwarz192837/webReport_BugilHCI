@@ -1,17 +1,3 @@
-// We have HTML files.
-// A server sends those HTML files to people's browsers.
-// The HTML (with JS) runs in the browser.
-// The browser JS sends requests back to the server.
-// The server runs logic, talks to a database if needed,
-// then sends data back to the browser.
-
-// Thing	            Purpose	  Requested by
-// /index.html	        Page	  Browser automatically
-// /about.html	        Page	  <a href>
-// /assets/main.css	Styling	  <link>
-// /assets/app.js	    Code	  <script>
-// /api/hello	        Data	  JavaScript (fetch)
-
 const Database = require("better-sqlite3");
 const db = new Database("research.db");
 
@@ -22,44 +8,40 @@ db.exec(`
   );
 `);
 
-
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+
+const OpenAI = require("openai");
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const sessions = new Map();
 
 const PORT = 3001;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
-  ".css":  "text/css; charset=utf-8",
-  ".js":   "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
-  ".png":  "image/png",
-  ".jpg":  "image/jpg",
+  ".png": "image/png",
+  ".jpg": "image/jpg",
   ".jpeg": "image/jpeg",
-  ".gif":  "image/gif",
-  ".svg":  "image/svg+xml",
-  ".ico":  "image/x-icon",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
 };
 
-//----------------------------------------------------------------------
+function getLogByDate(date) {
+  return db.prepare("SELECT date, text FROM logs WHERE date = ?").get(date);
+}
 
-// Parse into js object
-function readDB(cb) {
-  fs.readFile(DB_FILE, "utf8", (err, text) => {
-    if (err) {
-      return cb(err);
-    }
-    try {
-      const db = JSON.parse(text);
-      if (!db.logs || !Array.isArray(db.logs)) {
-        db.logs = [];
-      }
-      cb(null, db);
-    } catch (e) {
-      cb(e);
-    }
-  });
+function getAllDates() {
+  return db.prepare("SELECT date FROM logs ORDER BY date ASC").all().map(r => r.date);
+}
+
+function clip(s, max = 3000) {
+  s = String(s ?? "");
+  return s.length > max ? s.slice(0, max) + "\n...[truncated]" : s;
 }
 
 function readJsonBody(req, cb) {
@@ -81,25 +63,48 @@ function isValidDateYYYYMMDD(s) {
   return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
+async function explainLogWithAI({ date, logText, instruction }) {
+  const system = [
+    "You are an assistant that explains biology research log entries clearly and accurately.",
+    "Explain in simple terms first, then add a short step-by-step breakdown.",
+    "Define jargon briefly. End with 2-3 key takeaways.",
+    "If the log is ambiguous, list 2-3 clarifying questions.",
+  ].join(" ");
+
+  const userPrompt =
+    `Research log entry:\n` +
+    `Date: ${date}\n` +
+    `Log: ${clip(logText, 3500)}\n\n` +
+    `User request: ${instruction || "Explain this in simple terms."}`;
+
+  const resp = await openai.responses.create({
+    model: "gpt-4.1-mini",
+    input: [
+      { role: "system", content: system },
+      { role: "user", content: userPrompt },
+    ],
+  });
+
+  return resp.output_text || "(no response)";
+}
+
 const server = http.createServer((req, res) => {
   console.log(req.method, req.url);
 
   if (req.method === "GET" && req.url === "/api/dates") {
-    readDB((err, db) => {
-      if (err) {
-        res.statusCode = 500;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "DB read failed" }));
-        return;
-      }
-      const dates = db.logs.map(x => x.date).sort();
+    try {
+      const dates = getAllDates();
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json; charset=utf-8");
       res.end(JSON.stringify(dates));
-    });
+    } catch (e) {
+      console.error(e);
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ error: "DB query failed" }));
+    }
     return;
   }
-
 
   if (req.method === "GET" && req.url.startsWith("/api/log")) {
     const u = new URL(req.url, `http://${req.headers.host}`);
@@ -112,7 +117,7 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    const row = db.prepare("SELECT date, text FROM logs WHERE date = ?").get(date);
+    const row = getLogByDate(date);
 
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -120,31 +125,118 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "POST" && req.url === "/api/chat") {
+    readJsonBody(req, async (err, body) => {
+      if (err) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "Invalid JSON" }));
+        return;
+      }
+
+      const sessionId = (body?.sessionId || "default").toString();
+      const message = (body?.message || "").toString().trim();
+
+      if (!message) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "Expected JSON: { sessionId, message }" }));
+        return;
+      }
+
+      const history = sessions.get(sessionId) || [];
+      const MAX_TURNS = 10;
+      const trimmed = history.slice(-2 * MAX_TURNS);
+
+      try {
+        const resp = await openai.responses.create({
+          model: "gpt-4.1-mini",
+          input: [
+            { role: "system", content: "You are a helpful assistant. Keep replies concise." },
+            ...trimmed,
+            { role: "user", content: message },
+          ],
+        });
+
+        const reply = resp.output_text || "(no response)";
+        history.push({ role: "user", content: message });
+        history.push({ role: "assistant", content: reply });
+        sessions.set(sessionId, history);
+
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ reply }));
+      } catch (e) {
+        console.error(e);
+        res.statusCode = 500;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "OpenAI request failed" }));
+      }
+    });
+    return;
+  }
 
   if (req.method === "POST" && req.url === "/api/log") {
-    readJsonBody(req, (err, body) => {
+    readJsonBody(req, async (err, body) => {
       const date = body?.date;
-      const text = body?.text;
+      const rawText = body?.text;
 
-      if (err || !isValidDateYYYYMMDD(date) || typeof text !== "string" || text.trim() === "") {
+      if (err || !isValidDateYYYYMMDD(date) || typeof rawText !== "string") {
         res.statusCode = 400;
         res.setHeader("Content-Type", "application/json; charset=utf-8");
         res.end(JSON.stringify({ error: "Expected JSON: { date:'YYYY-MM-DD', text:'...' }" }));
         return;
       }
 
+      const text = rawText.trim();
+      if (!text) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ error: "Text cannot be empty" }));
+        return;
+      }
+
+      if (text.startsWith("!!!")) {
+        const instruction = text.slice(3).trim() || "Explain this in simple terms.";
+
+        const row = getLogByDate(date);
+        if (!row) {
+          res.statusCode = 404;
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.end(JSON.stringify({ error: `No log found for ${date}` }));
+          return;
+        }
+
+        try {
+          const explanation = await explainLogWithAI({
+            date: row.date,
+            logText: row.text,
+            instruction,
+          });
+
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.end(JSON.stringify({ ok: true, date, entry: explanation, ai: true }));
+        } catch (e) {
+          console.error(e);
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.end(JSON.stringify({ error: "OpenAI request failed" }));
+        }
+        return;
+      }
+
       db.prepare(`
         INSERT INTO logs (date, text) VALUES (?, ?)
         ON CONFLICT(date) DO UPDATE SET text = excluded.text
-      `).run(date, text.trim());
+      `).run(date, text);
 
       res.statusCode = 201;
       res.setHeader("Content-Type", "application/json; charset=utf-8");
-      res.end(JSON.stringify({ ok: true, date }));
+      res.end(JSON.stringify({ ok: true, date, entry: text, ai: false }));
     });
     return;
   }
-
 
   if (req.method !== "GET") {
     res.statusCode = 405;
@@ -170,6 +262,5 @@ const server = http.createServer((req, res) => {
     res.end(data);
   });
 });
-
 
 server.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));

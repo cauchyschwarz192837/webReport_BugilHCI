@@ -209,80 +209,82 @@
 
 			<script>
 			(function () {
-				function todayISO() {
-					const d = new Date();
-					const yyyy = d.getFullYear();
-					const mm = String(d.getMonth() + 1).padStart(2, "0");
-					const dd = String(d.getDate()).padStart(2, "0");
-					return `${yyyy}-${mm}-${dd}`;
+			function todayISO() {
+				const d = new Date();
+				const yyyy = d.getFullYear();
+				const mm = String(d.getMonth() + 1).padStart(2, "0");
+				const dd = String(d.getDate()).padStart(2, "0");
+				return `${yyyy}-${mm}-${dd}`;
+			}
+
+			const logDate = document.getElementById("logDate");
+			const viewDate = document.getElementById("viewDate");
+			const logText = document.getElementById("logText");
+			const out = document.getElementById("logOut");
+			const saveBtn = document.getElementById("logSave");
+			const loadBtn = document.getElementById("logLoad");
+			const status = document.getElementById("logSaveStatus");
+
+			if (!logDate || !viewDate || !logText || !out || !saveBtn || !loadBtn) {
+				return;
+			}
+
+			logDate.value = todayISO();
+			viewDate.value = todayISO();
+
+			async function loadEntry(date) {
+				status.textContent = "";
+				out.textContent = "Loading...";
+				const res = await fetch(`/api/log?date=${encodeURIComponent(date)}`);
+				const data = await res.json().catch(() => ({}));
+
+				if (!res.ok) {
+				out.textContent = data.error || "Load failed";
+				return;
 				}
 
-				const logDate = document.getElementById("logDate");
-				const viewDate = document.getElementById("viewDate");
-				const logText = document.getElementById("logText");
-				const out = document.getElementById("logOut");
-				const saveBtn = document.getElementById("logSave");
-				const loadBtn = document.getElementById("logLoad");
-				const status = document.getElementById("logSaveStatus");
-
-				// if the section is not present, do nothing.
-				if (!logDate || !viewDate || !logText || !out || !saveBtn || !loadBtn) {
-					return;
+				if (data.entry == null) {
+				out.textContent = "(no entry for this date)";
+				} else if (typeof data.entry === "string") {
+				out.textContent = data.entry;
+				} else {
+				out.textContent = data.entry.text ?? JSON.stringify(data.entry, null, 2);
 				}
+			}
 
-				logDate.value = todayISO();
-				viewDate.value = todayISO();
-
-				async function loadEntry(date) {
-					status.textContent = "";
-					out.textContent = "Loading...";
-					const res = await fetch(`/api/log?date=${encodeURIComponent(date)}`);
-					const data = await res.json().catch(() => ({}));
-
-					if (!res.ok) {
-						out.textContent = data.error || "Load failed";
-						return;
-					}
-
-					if (data.entry == null) {
-						out.textContent = "(no entry for this date)";
-					} else if (typeof data.entry === "string") {
-						out.textContent = data.entry;
-					} else {
-						out.textContent = data.entry.text ?? JSON.stringify(data.entry, null, 2);
-					}
-				}
-
-				async function saveEntry(date, text) {
-					status.textContent = "Saving...";
-					const res = await fetch("/api/log", {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ date, text })
-					});
-
-					const data = await res.json().catch(() => ({}));
-
-					if (!res.ok) {
-						status.textContent = data.error || "Save failed";
-						return;
-					}
-
-					status.textContent = `Saved ${date}`;
-				}
-
-				saveBtn.addEventListener("click", async () => {
-					const date = logDate.value;
-					const text = logText.value;
-					await saveEntry(date, text);
+			async function saveEntry(date, text) {
+				status.textContent = "Saving...";
+				const res = await fetch("/api/log", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ date, text })
 				});
 
-				loadBtn.addEventListener("click", async () => {
-					const date = viewDate.value;
-					await loadEntry(date);
-				});
+				const data = await res.json().catch(() => ({}));
 
-				// autoload default today's date
-				loadEntry(viewDate.value);
+				if (!res.ok) {
+				status.textContent = data.error || "Save failed";
+				return;
+				}
+
+				if (typeof data.entry === "string") {
+				logText.value = data.entry;
+				}
+
+				status.textContent = data.ai ? "AI explanation generated" : `Saved ${date}`;
+			}
+
+			saveBtn.addEventListener("click", async () => {
+				const date = logDate.value;
+				const text = logText.value;
+				await saveEntry(date, text);
+			});
+
+			loadBtn.addEventListener("click", async () => {
+				const date = viewDate.value;
+				await loadEntry(date);
+			});
+
+			loadEntry(viewDate.value);
 			})();
 			</script>
