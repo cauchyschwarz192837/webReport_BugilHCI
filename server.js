@@ -1,12 +1,24 @@
 const path = require("path");
+const fs = require("fs");
+
 const express = require("express");
 const app = express();
 
-app.use(express.json());
-app.use(express.static("public"));
+app.use(express.json({ limit: "2mb" }));
 
+// Serve static files from repo root (keeps your existing paths)
+app.use(express.static(__dirname));
+
+// Optional mounts if you already use these absolute paths in HTML
+app.use("/css", express.static(path.join(__dirname, "css")));
+app.use("/js", express.static(path.join(__dirname, "js")));
+app.use("/images", express.static(path.join(__dirname, "images")));
+app.use("/assets", express.static(path.join(__dirname, "assets")));
+
+// ---------- DB ----------
 const Database = require("better-sqlite3");
-const db = new Database("research.db");
+// Use absolute path so Render always finds it
+const db = new Database(path.join(__dirname, "research.db"));
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS logs (
@@ -14,6 +26,36 @@ db.exec(`
     text TEXT NOT NULL
   );
 `);
+
+function isValidDateYYYYMMDD(s) {
+  return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
+function getLogByDate(date) {
+  return db.prepare("SELECT date, text FROM logs WHERE date = ?").get(date);
+}
+
+function getAllDates() {
+  return db.prepare("SELECT date FROM logs ORDER BY date ASC").all().map(r => r.date);
+}
+
+function getLogsBetween(start, end) {
+  return db.prepare(`
+    SELECT date, text
+    FROM logs
+    WHERE date >= ? AND date <= ?
+    ORDER BY date ASC
+  `).all(start, end);
+}
+
+function clip(s, max = 3000) {
+  s = String(s ?? "");
+  return s.length > max ? s.slice(0, max) + "\n...[truncated]" : s;
+}
+
+// ---------- OpenAI + LangChain ----------
+const OpenAI = require("openai");
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const { ChatOpenAI, OpenAIEmbeddings } = require("@langchain/openai");
 const { RecursiveCharacterTextSplitter } = require("@langchain/textsplitters");
@@ -34,29 +76,6 @@ const lcLLM = new ChatOpenAI({
   temperature: 0.2,
 });
 
-const http = require("http");
-const fs = require("fs");
-
-const OpenAI = require("openai");
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const sessions = new Map();
-
-const PORT = process.env.PORT || 3000;
-
-const MIME = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".png": "image/png",
-  ".jpg": "image/jpg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
-};
-
-// prevent ignoring retrieved context, hallucination outside context, inacurate citations
 const ragPrompt = ChatPromptTemplate.fromMessages([
   ["system",
     "You are a research assistant. Answer only using the provided context from the user's research logs. " +
@@ -66,21 +85,16 @@ const ragPrompt = ChatPromptTemplate.fromMessages([
   ["human",
     "Time window: {start} to {end}\n" +
     "Question: {input}\n\n" +
-    "Context (log excerpts):\n{context}\n\n" +      // LangChain will fill {context} with retrieved chunks
+    "Context (log excerpts):\n{context}\n\n" +
     "Answer with citations:"
   ],
 ]);
 
-// call LangChain helper to build the “stuff documents into the prompt and call the LLM” pipeline
-// Caching the static part (LLM + prompt)
-// Building the dynamic part (retrieval based on date range) per request
-
 let ragChainPromise = null;
-
-function getRagChain() {   // cannot build the full retrieval chain yet because retriever depends on date range
+function getRagChain() {
   if (!ragChainPromise) {
     ragChainPromise = (async () => {
-        const combineDocsChain = await createStuffDocumentsChain({
+      const combineDocsChain = await createStuffDocumentsChain({
         llm: lcLLM,
         prompt: ragPrompt,
       });
@@ -90,8 +104,6 @@ function getRagChain() {   // cannot build the full retrieval chain yet because 
   return ragChainPromise;
 }
 
-//-------------------------------------------------
-
 function ymd(d) {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -100,80 +112,25 @@ function ymd(d) {
 }
 
 function parseLastRange(rangeStr) {
-  if (typeof rangeStr !== "string") {
-    return null;
-  }
+  if (typeof rangeStr !== "string") return null;
 
-  const m = rangeStr.trim().toLowerCase().match(/^last\s+(\d{1,4})\s+(day|days|week|weeks|month|months|year|years)$/);
-  
-  if (!m) {
-    return null;
-  }
+  const m = rangeStr.trim().toLowerCase()
+    .match(/^last\s+(\d{1,4})\s+(day|days|week|weeks|month|months|year|years)$/);
+  if (!m) return null;
 
   const n = parseInt(m[1], 10);
   const unit = m[2];
-
-  if (!(n >= 1 && n <= 36500)) {  // check valid
-    return null;
-  }
+  if (!(n >= 1 && n <= 36500)) return null;
 
   const end = new Date();
   const start = new Date(end);
 
-  if (unit.startsWith("day")) {   // account for days, etc.
-    start.setDate(start.getDate() - n);
-  } else if (unit.startsWith("week")) {
-    start.setDate(start.getDate() - (7 * n));
-  } else if (unit.startsWith("month")) {
-    start.setMonth(start.getMonth() - n);
-  } else if (unit.startsWith("year")) {
-    start.setFullYear(start.getFullYear() - n);
-  }
+  if (unit.startsWith("day")) start.setDate(start.getDate() - n);
+  else if (unit.startsWith("week")) start.setDate(start.getDate() - 7 * n);
+  else if (unit.startsWith("month")) start.setMonth(start.getMonth() - n);
+  else if (unit.startsWith("year")) start.setFullYear(start.getFullYear() - n);
 
   return { start: ymd(start), end: ymd(end), n, unit };
-}
-
-function getLogsBetween(start, end) {    // SQL statement, get the two columns from the log table, oldest to newest in range
-  return db.prepare(`
-    SELECT date, text
-    FROM logs
-    WHERE date >= ? AND date <= ?
-    ORDER BY date ASC
-  `).all(start, end);
-}
-
-//---------------------------------------------------
-
-function getLogByDate(date) {
-  return db.prepare("SELECT date, text FROM logs WHERE date = ?").get(date);
-}
-
-function getAllDates() {
-  return db.prepare("SELECT date FROM logs ORDER BY date ASC").all().map(r => r.date);
-}
-
-function clip(s, max = 3000) {
-  s = String(s ?? "");
-  return s.length > max ? s.slice(0, max) + "\n...[truncated]" : s;
-}
-
-function readJsonBody(req, cb) {
-  let body = "";
-  req.on("data", (chunk) => {
-    body += chunk;
-    if (body.length > 1_000_000) req.destroy();
-  });
-  req.on("end", () => {
-    try {
-      cb(null, JSON.parse(body || "{}"));
-    } catch (e) {
-      cb(e);
-    }
-  });
-}
-
-function isValidDateYYYYMMDD(s) {
-  return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
 async function explainLogWithAI({ date, logText, instruction }) {
@@ -201,318 +158,195 @@ async function explainLogWithAI({ date, logText, instruction }) {
   return resp.output_text || "(no response)";
 }
 
+// ---------- API ROUTES ----------
 
-//---------------------------------------------------------------------------------
-
-
-const server = http.createServer((req, res) => {
-  if (req.method === "POST" && req.url === "/api/ask_range") {
-    readJsonBody(req, async (err, body) => {
-      if (err) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "Invalid JSON" }));
-        return;
-      }
-
-      const range = (body?.range || "").toString();
-      const question = (body?.question || "").toString().trim();
-
-      if (!question) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "Expected JSON: { range: 'last 2 months', question: '...' }" }));
-        return;
-      }
-
-      const parsed = parseLastRange(range);
-      if (!parsed) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "range must look like: 'last 7 days' | 'last 3 weeks' | 'last 2 months' | 'last 1 year'" }));
-        return;
-      }
-
-      // Step A: Pull logs in range (plain SQL)
-      const rows = getLogsBetween(parsed.start, parsed.end);
-      if (!rows.length) {
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({
-          answer: `No logs found between ${parsed.start} and ${parsed.end}.`,
-          sources: [],
-          start: parsed.start,
-          end: parsed.end,
-        }));
-        return;
-      }
-
-      try {
-        // Step B: Convert logs into LangChain Documents
-        const docs = rows.map(r => new Document({
-          pageContent: `[${r.date}]\n${r.text}`,
-          metadata: { date: r.date },
-        }));
-
-        // Step C: Split Documents into chunks (LangChain splitter)
-        const splitter = new RecursiveCharacterTextSplitter({
-          chunkSize: 1200,
-          chunkOverlap: 150,
-        });
-        const chunkedDocs = await splitter.splitDocuments(docs);
-
-        // Step D: Put chunks into a VectorStore (LangChain handles embeddings + storage)
-        // MemoryVectorStore = ephemeral (rebuild each request). Works for “last X range” nicely.
-        const vectorStore = await MemoryVectorStore.fromDocuments(chunkedDocs, lcEmbeddings);
-
-        // Step E: Create a retriever = “top-k relevant chunks”
-        const retriever = vectorStore.asRetriever({ k: 8 });
-
-        // Step F: Build RAG chain (retriever -> stuff docs -> LLM)
-        const { combineDocsChain } = await getRagChain();
-        const ragChain = await createRetrievalChain({
-          retriever,
-          combineDocsChain,
-        });
-
-        // Step G: Run it
-        const out = await ragChain.invoke({
-          input: question,
-          start: parsed.start,
-          end: parsed.end,
-        });
-
-        // out.answer is the model answer
-        // out.context is usually the retrieved docs (depends on version; we handle both)
-        const answer = out.answer || "(no response)";
-        const usedDocs = out.context || out.sourceDocuments || [];
-
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({
-          answer,
-          start: parsed.start,
-          end: parsed.end,
-          sources: usedDocs.map(d => ({
-            date: d.metadata?.date,
-            snippet: clip(d.pageContent || "", 240),
-          })),
-        }));
-      } catch (e) {
-        console.error(e);
-        res.statusCode = 500;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "ask_range failed" }));
-      }
-    });
-    return;
-  }
-
-  //---------------------------------------------------------------
-
-  if (req.method === "GET" && req.url === "/api/dates") {
-    try {
-      const dates = getAllDates();
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/json; charset=utf-8");
-      res.end(JSON.stringify(dates));
-    } catch (e) {
-      console.error(e);
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "application/json; charset=utf-8");
-      res.end(JSON.stringify({ error: "DB query failed" }));
-    }
-    return;
-  }
-
-  //---------------------------------------------------------------
-
-  if (req.method === "GET" && req.url.startsWith("/api/log")) {
-    const u = new URL(req.url, `http://${req.headers.host}`);
-    const date = u.searchParams.get("date");
-
-    if (!isValidDateYYYYMMDD(date)) {
-      res.statusCode = 400;
-      res.setHeader("Content-Type", "application/json; charset=utf-8");
-      res.end(JSON.stringify({ error: "Use ?date=YYYY-MM-DD" }));
-      return;
-    }
-
-    const row = getLogByDate(date);
-
-    res.statusCode = 200;
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.end(JSON.stringify({ 
-      date, entry: row ? row.text : null 
-    }));
-    return;
-  }
-
-  //---------------------------------------------------------------
-
-  if (req.method === "POST" && req.url === "/api/chat") {
-    readJsonBody(req, async (err, body) => {
-      if (err) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "Invalid JSON" }));
-        return;
-      }
-
-      const sessionId = (body?.sessionId || "default").toString();
-      const message = (body?.message || "").toString().trim();
-
-      if (!message) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "Expected JSON: { sessionId, message }" }));
-        return;
-      }
-
-      const history = sessions.get(sessionId) || [];
-      const MAX_TURNS = 10;
-      const trimmed = history.slice(-2 * MAX_TURNS);
-
-      try {
-        const resp = await openai.responses.create({
-          model: "gpt-4.1-mini",
-          input: [
-            { role: "system", 
-              content: "You are a helpful assistant. Keep replies concise." 
-            },
-            ...trimmed,
-            { role: "user", 
-              content: message 
-            },
-          ],
-        });
-
-        const reply = resp.output_text || "(no response)";
-        history.push({ role: "user", 
-          content: message 
-        });
-        history.push({ role: "assistant", 
-          content: reply 
-        });
-        sessions.set(sessionId, history);
-
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ 
-          reply 
-        }));
-      } catch (e) {
-        console.error(e);
-        res.statusCode = 500;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "OpenAI request failed" }));
-      }
-    });
-    return;
-  }
-
-  //---------------------------------------------------------------
-
-  if (req.method === "POST" && req.url === "/api/log") {
-    readJsonBody(req, async (err, body) => {
-      const date = body?.date;
-      const rawText = body?.text;
-
-      if (err || !isValidDateYYYYMMDD(date) || typeof rawText !== "string") {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "Expected JSON: { date:'YYYY-MM-DD', text:'...' }" }));
-        return;
-      }
-
-      const text = rawText.trim();
-      if (!text) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "Text cannot be empty" }));
-        return;
-      }
-
-      if (text.startsWith("!!!")) {
-        const instruction = text.slice(3).trim() || "Explain this in simple terms.";
-
-        const row = getLogByDate(date);
-        if (!row) {
-          res.statusCode = 404;
-          res.setHeader("Content-Type", "application/json; charset=utf-8");
-          res.end(JSON.stringify({ error: `No log found for ${date}` }));
-          return;
-        }
-
-        try {
-          const explanation = await explainLogWithAI({
-            date: row.date,
-            logText: row.text,
-            instruction,
-          });
-
-          res.statusCode = 200;
-          res.setHeader("Content-Type", "application/json; charset=utf-8");
-          res.end(JSON.stringify({ ok: true, date, entry: explanation, ai: true }));
-        } catch (e) {
-          console.error(e);
-          res.statusCode = 500;
-          res.setHeader("Content-Type", "application/json; charset=utf-8");
-          res.end(JSON.stringify({ error: "OpenAI request failed" }));
-        }
-        return;
-      }
-
-      //---------------------------------------------------------------
-
-      db.prepare(`
-        INSERT INTO logs (date, text) VALUES (?, ?)
-        ON CONFLICT(date) DO UPDATE SET text = excluded.text
-      `).run(date, text);
-
-      res.statusCode = 201;
-      res.setHeader("Content-Type", "application/json; charset=utf-8");
-      res.end(JSON.stringify({ ok: true, date, entry: text, ai: false }));
-    });
-    return;
-  }
-
-  if (req.method !== "GET") {
-    res.statusCode = 405;
-    res.end("Method Not Allowed");
-    return;
-  }
-
-  const rawPath = req.url.split("?")[0];
-  const urlPath = rawPath === "/" ? "/index.html" : rawPath;
-  const safePath = path.normalize(urlPath).replace(/^(\.\.(\/|\\|$))+/, "");
-  const filePath = path.join(__dirname, safePath);
-
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      res.statusCode = 404;
-      res.end("Not found");
-      return;
-    }
-    const ext = path.extname(filePath).toLowerCase();
-    const type = MIME[ext] || "application/octet-stream";
-    res.statusCode = 200;
-    res.setHeader("Content-Type", type);
-    res.end(data);
-  });
-});
-
-app.use(express.static(__dirname));
-
+// Home
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
-app.use("/css", express.static(path.join(__dirname, "css")));
-app.use("/js", express.static(path.join(__dirname, "js")));
-app.use("/images", express.static(path.join(__dirname, "images")));
-app.use("/assets", express.static(path.join(__dirname, "assets")));
+// Dates list
+app.get("/api/dates", (req, res) => {
+  try {
+    res.json(getAllDates());
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "DB query failed" });
+  }
+});
 
+// Load log by date
+app.get("/api/log", (req, res) => {
+  try {
+    const date = req.query.date;
+    if (!isValidDateYYYYMMDD(date)) {
+      return res.status(400).json({ error: "Use ?date=YYYY-MM-DD" });
+    }
+    const row = getLogByDate(date);
+    res.json({ date, entry: row ? row.text : null });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "DB query failed" });
+  }
+});
+
+// Save log OR "!!!" explain existing log
+app.post("/api/log", async (req, res) => {
+  try {
+    const date = req.body?.date;
+    const rawText = req.body?.text;
+
+    if (!isValidDateYYYYMMDD(date) || typeof rawText !== "string") {
+      return res.status(400).json({ error: "Expected JSON: { date:'YYYY-MM-DD', text:'...' }" });
+    }
+
+    const text = rawText.trim();
+    if (!text) {
+      return res.status(400).json({ error: "Text cannot be empty" });
+    }
+
+    // "!!!" = explain the EXISTING log entry for that date
+    if (text.startsWith("!!!")) {
+      const instruction = text.slice(3).trim() || "Explain this in simple terms.";
+      const row = getLogByDate(date);
+      if (!row) {
+        return res.status(404).json({ error: `No log found for ${date}` });
+      }
+      const explanation = await explainLogWithAI({
+        date: row.date,
+        logText: row.text,
+        instruction,
+      });
+      return res.json({ ok: true, date, entry: explanation, ai: true });
+    }
+
+    // Normal save/update
+    db.prepare(`
+      INSERT INTO logs (date, text) VALUES (?, ?)
+      ON CONFLICT(date) DO UPDATE SET text = excluded.text
+    `).run(date, text);
+
+    return res.status(201).json({ ok: true, date, entry: text, ai: false });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "log failed" });
+  }
+});
+
+// Range RAG ask
+app.post("/api/ask_range", async (req, res) => {
+  try {
+    const range = (req.body?.range || "").toString();
+    const question = (req.body?.question || "").toString().trim();
+
+    if (!question) {
+      return res.status(400).json({ error: "Expected JSON: { range: 'last 2 months', question: '...' }" });
+    }
+
+    const parsed = parseLastRange(range);
+    if (!parsed) {
+      return res.status(400).json({ error: "range must look like: 'last 7 days' | 'last 3 weeks' | 'last 2 months' | 'last 1 year'" });
+    }
+
+    const rows = getLogsBetween(parsed.start, parsed.end);
+    if (!rows.length) {
+      return res.json({
+        answer: `No logs found between ${parsed.start} and ${parsed.end}.`,
+        sources: [],
+        start: parsed.start,
+        end: parsed.end,
+      });
+    }
+
+    // Docs
+    const docs = rows.map(r => new Document({
+      pageContent: `[${r.date}]\n${r.text}`,
+      metadata: { date: r.date },
+    }));
+
+    // Split
+    const splitter = new RecursiveCharacterTextSplitter({
+      chunkSize: 1200,
+      chunkOverlap: 150,
+    });
+    const chunkedDocs = await splitter.splitDocuments(docs);
+
+    // Vector store + retriever
+    const vectorStore = await MemoryVectorStore.fromDocuments(chunkedDocs, lcEmbeddings);
+    const retriever = vectorStore.asRetriever({ k: 8 });
+
+    // RAG chain
+    const { combineDocsChain } = await getRagChain();
+    const ragChain = await createRetrievalChain({ retriever, combineDocsChain });
+
+    const out = await ragChain.invoke({
+      input: question,
+      start: parsed.start,
+      end: parsed.end,
+    });
+
+    const answer = out.answer || "(no response)";
+    const usedDocs = out.context || out.sourceDocuments || [];
+
+    res.json({
+      answer,
+      start: parsed.start,
+      end: parsed.end,
+      sources: usedDocs.map(d => ({
+        date: d.metadata?.date,
+        snippet: clip(d.pageContent || "", 240),
+      })),
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "ask_range failed" });
+  }
+});
+
+// General chat (sessioned)
+const sessions = new Map();
+app.post("/api/chat", async (req, res) => {
+  try {
+    const sessionId = (req.body?.sessionId || "default").toString();
+    const message = (req.body?.message || "").toString().trim();
+
+    if (!message) {
+      return res.status(400).json({ error: "Expected JSON: { sessionId, message }" });
+    }
+
+    const history = sessions.get(sessionId) || [];
+    const MAX_TURNS = 10;
+    const trimmed = history.slice(-2 * MAX_TURNS);
+
+    const resp = await openai.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
+        { role: "system", content: "You are a helpful assistant. Keep replies concise." },
+        ...trimmed,
+        { role: "user", content: message },
+      ],
+    });
+
+    const reply = resp.output_text || "(no response)";
+    history.push({ role: "user", content: message });
+    history.push({ role: "assistant", content: reply });
+    sessions.set(sessionId, history);
+
+    res.json({ reply });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "OpenAI request failed" });
+  }
+});
+
+// 404 logger
+app.use((req, res) => {
+  console.log("404:", req.method, req.url);
+  res.status(404).send("Not found");
+});
+
+// Listen
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });
