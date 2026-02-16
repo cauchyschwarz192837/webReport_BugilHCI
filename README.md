@@ -1,11 +1,74 @@
-# Full Web Report (HTML, CSS, JavaScript, Node.js + Express Backend) with Embedded OpenAI LLM-Based Chatbot for AI-assisted Interpretation
-## Quercetin and Anthocyanin as Potential Sunscreen Agents for Hair Photoprotection
+# Web Report Platform  
 
-This is the web report site for a biology experimental research project done at Bugil Academy, South Korea, and Hwa Chong Institution, Singapore.
-Our research goals, methods, results, references and datalog (Node.js + Express backend) are made available here.
+---
 
-Designed an embedded chatbot powered by the OpenAI API (LLM-based), generating natural-language explanations of stored research logs by dynamically querying the database and constructing structured context for model inference. Command-based interaction model (with the date of the selected log chosen, type "!!!" and click "Send") to route the logged entry for AI-assisted interpretation and explanation. Specific questions can be typed following the "!!!" prefix
+This repository contains the full-stack web report platform for a biology research project conducted at **Bugil Academy (South Korea)** and **Hwa Chong Institution (Singapore)**.
 
-<img width="1434" height="736" alt="截圖 2026-02-01 下午10 40 28" src="https://github.com/user-attachments/assets/9c9006c9-f7fd-46c1-b74f-e8966798e271" />
-<img width="1432" height="728" alt="截圖 2026-02-01 下午10 40 49" src="https://github.com/user-attachments/assets/64ec64ad-3a4d-4983-a340-77a1e0c5d789" />
-<img width="1438" height="732" alt="截圖 2026-02-01 下午10 41 14" src="https://github.com/user-attachments/assets/5a0ae828-6c74-4974-b08d-83da3e4e0cd3" />
+The platform presents research objectives, methodology, experimental results, references, and a persistent experimental datalog system — enhanced with a Retrieval-Augmented AI assistant for intelligent interpretation of research entries.
+
+## Technology Stack
+
+### Frontend
+- HTML  
+- CSS  
+- Vanilla JavaScript (Fetch API)
+
+### Backend
+- Node.js  
+- Express.js  
+- SQL database for persistent log storage  
+
+### AI Infrastructure
+- LangChain v1 modular packages  
+- MemoryVectorStore
+- Retrieval chain (`@langchain/classic`)  
+- OpenAI SDK  
+
+---
+
+## Project Overview
+
+This web application was built to:
+
+- Digitally document experimental research logs  
+- Provide structured storage via a backend database  
+- Enable dynamic querying of stored entries  
+- Integrate a context-aware AI assistant for scientific interpretation  
+
+The system uses a **Retrieval-Augmented Generation (RAG)** architecture built with LangChain.
+
+---
+
+## AI Chatbot Architecture (RAG Pipeline)
+
+The embedded chatbot uses a modular retrieval pipeline:
+
+1. Experimental logs are stored in a SQL-backed database via Node.js + Express.
+2. Logs are dynamically chunked and embedded into a vector store.
+3. A semantic retriever selects relevant content based on user queries.
+4. Retrieved documents are passed into a retrieval chain.
+5. The OpenAI LLM generates grounded explanations using retrieved context.
+
+This architecture ensures:
+
+- Reduced hallucination  
+- Context-aware scientific explanations  
+- Scalable document expansion  
+- Modular upgrade path to persistent vector databases (e.g., Chroma, Pinecone)
+
+---
+
+## Command-Based Interaction Model
+
+To activate AI-assisted interpretation:
+
+1. Select the date of a stored research log.
+2. Type `!!!` and click **Send** to trigger automated explanation.
+3. Type `!!! your question here` to ask specific questions about that selected log.
+
+The `!!!` prefix routes the request through the retrieval chain instead of standard UI handling.
+
+---
+
+- OpenAI API key is stored via environment variables (`OPENAI_API_KEY`)
+- No API credentials are committed to the repository
