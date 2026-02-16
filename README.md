@@ -4,7 +4,7 @@
 
 This repository contains the full-stack web report platform for a biology research project conducted at Bugil Academy (South Korea) and Hwa Chong Institution (Singapore).
 
-The platform presents research objectives, methodology, experimental results, references, and a persistent experimental datalog system — enhanced with a Retrieval-Augmented AI assistant for intelligent interpretation of research entries.
+The platform presents research objectives, methodology, experimental results, references, and a persistent experimental datalog system — enhanced with a Retrieval-Augmented AI assistant for intelligent interpretation of research entries. It is hosted on Render at https://webreport-bugilhci.onrender.com/.
 
 ## Technology Stack
 
