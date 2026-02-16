@@ -1,4 +1,4 @@
-# Web Report Platform  
+# Full-Stack RAG-Based Research Log Platform
 
 ---
 
