@@ -35,7 +35,7 @@ const OpenAI = require("openai");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const sessions = new Map();
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3000;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -496,4 +496,6 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => console.log(`Running at http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
