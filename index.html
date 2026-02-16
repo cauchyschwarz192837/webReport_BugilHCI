@@ -82,7 +82,7 @@
 									</span>
 									<a href="research_questions.html">
 										<h2>Research Questions</h2>
-										
+
 									</a>
 								</article>
 								<article class="style4">
@@ -162,34 +162,71 @@
 									</a>
 								</article>
 							</section>
+
 							<br>
 							<br>
-							<section id = "relog" style="margin-top: 2rem;">
+
+							<section id="relog" style="margin-top: 2rem;">
 								<h2>Research Log</h2>
+
 								<div style="margin-bottom: 1rem;">
 									<h3>Write / Update entry</h3>
 									<label>
-									Date:
-									<input id="logDate" type="date" />
+										Date:
+										<input id="logDate" type="date" />
 									</label>
 									<br><br>
 									<textarea id="logText" rows="8" style="width: 100%; max-width: 900px;"
-									placeholder="Write progress..."></textarea>
+										placeholder="Write progress..."></textarea>
 									<br><br>
 									<button id="logSave">Save entry</button>
 									<span id="logSaveStatus" style="margin-left: 1rem;"></span>
 								</div>
+
 								<hr>
+
 								<div style="margin-top: 1rem;">
 									<h3>View entry</h3>
 									<label>
-									Date:
-									<input id="viewDate" type="date" />
+										Date:
+										<input id="viewDate" type="date" />
 									</label>
 									<button id="logLoad">Load</button>
 									<pre id="logOut" style="white-space: pre-wrap; background: #f6f6f6; padding: 1rem; max-width: 900px;"></pre>
 								</div>
+
+								<hr>
+
+								<!-- RAG -->
+								<div style="margin-top: 1rem;">
+									<h3>Ask Logs (RAG)</h3>
+
+									<label>
+										Range (example: <code>last 30 days</code>, <code>last 3 months</code>):
+										<input id="ragRange" type="text" value="last 30 days" style="width: 220px; margin-left: 0.5rem;" />
+									</label>
+
+									<br><br>
+
+									<label>
+										Question:
+									</label>
+									<br>
+									<textarea id="ragQuestion" rows="3" style="width: 100%; max-width: 900px;"
+										placeholder="Ask a question about our log in a particular time window..."></textarea>
+									<br><br>
+
+									<button id="ragAsk">Ask</button>
+									<span id="ragStatus" style="margin-left: 1rem;"></span>
+
+									<h4 style="margin-top: 1rem;">Answer</h4>
+									<pre id="ragAnswer" style="white-space: pre-wrap; background: #f6f6f6; padding: 1rem; max-width: 900px;"></pre>
+
+									<h4 style="margin-top: 1rem;">Sources (retrieved snippets)</h4>
+									<pre id="ragSources" style="white-space: pre-wrap; background: #f6f6f6; padding: 1rem; max-width: 900px;"></pre>
+								</div>
 							</section>
+						</div>
 					</div>
 
 
@@ -209,82 +246,137 @@
 
 			<script>
 			(function () {
-			function todayISO() {
-				const d = new Date();
-				const yyyy = d.getFullYear();
-				const mm = String(d.getMonth() + 1).padStart(2, "0");
-				const dd = String(d.getDate()).padStart(2, "0");
-				return `${yyyy}-${mm}-${dd}`;
-			}
-
-			const logDate = document.getElementById("logDate");
-			const viewDate = document.getElementById("viewDate");
-			const logText = document.getElementById("logText");
-			const out = document.getElementById("logOut");
-			const saveBtn = document.getElementById("logSave");
-			const loadBtn = document.getElementById("logLoad");
-			const status = document.getElementById("logSaveStatus");
-
-			if (!logDate || !viewDate || !logText || !out || !saveBtn || !loadBtn) {
-				return;
-			}
-
-			logDate.value = todayISO();
-			viewDate.value = todayISO();
-
-			async function loadEntry(date) {
-				status.textContent = "";
-				out.textContent = "Loading...";
-				const res = await fetch(`/api/log?date=${encodeURIComponent(date)}`);
-				const data = await res.json().catch(() => ({}));
-
-				if (!res.ok) {
-				out.textContent = data.error || "Load failed";
-				return;
+				function todayISO() {
+					const d = new Date();
+					const yyyy = d.getFullYear();
+					const mm = String(d.getMonth() + 1).padStart(2, "0");
+					const dd = String(d.getDate()).padStart(2, "0");
+					return `${yyyy}-${mm}-${dd}`;
 				}
 
-				if (data.entry == null) {
-				out.textContent = "(no entry for this date)";
-				} else if (typeof data.entry === "string") {
-				out.textContent = data.entry;
-				} else {
-				out.textContent = data.entry.text ?? JSON.stringify(data.entry, null, 2);
-				}
-			}
+				const logDate = document.getElementById("logDate");
+				const viewDate = document.getElementById("viewDate");
+				const logText = document.getElementById("logText");
+				const out = document.getElementById("logOut");
+				const saveBtn = document.getElementById("logSave");
+				const loadBtn = document.getElementById("logLoad");
+				const status = document.getElementById("logSaveStatus");
 
-			async function saveEntry(date, text) {
-				status.textContent = "Saving...";
-				const res = await fetch("/api/log", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ date, text })
+				const ragRange = document.getElementById("ragRange");
+				const ragQuestion = document.getElementById("ragQuestion");
+				const ragAsk = document.getElementById("ragAsk");
+				const ragStatus = document.getElementById("ragStatus");
+				const ragAnswer = document.getElementById("ragAnswer");
+				const ragSources = document.getElementById("ragSources");
+
+				if (!logDate || !viewDate || !logText || !out || !saveBtn || !loadBtn) {
+					return;
+				}
+
+				logDate.value = todayISO();
+				viewDate.value = todayISO();
+
+				async function loadEntry(date) {
+					status.textContent = "";
+					out.textContent = "Loading...";
+					const res = await fetch(`/api/log?date=${encodeURIComponent(date)}`);
+					const data = await res.json().catch(() => ({}));
+
+					if (!res.ok) {
+						out.textContent = data.error || "Load failed";
+						return;
+					}
+
+					if (data.entry == null) {
+						out.textContent = "(no entry for this date)";
+					} else if (typeof data.entry === "string") {
+						out.textContent = data.entry;
+					} else {
+						out.textContent = data.entry.text ?? JSON.stringify(data.entry, null, 2);
+					}
+				}
+
+				async function saveEntry(date, text) {
+					status.textContent = "Saving...";
+					const res = await fetch("/api/log", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ date, text })
+					});
+
+					const data = await res.json().catch(() => ({}));
+
+					if (!res.ok) {
+						status.textContent = data.error || "Save failed";
+						return;
+					}
+
+					if (typeof data.entry === "string") {
+						logText.value = data.entry;
+					}
+
+					status.textContent = data.ai ? "AI explanation generated" : `Saved ${date}`;
+				}
+
+				// NEW: Ask RAG endpoint
+				async function askRange(range, question) {
+					if (!ragStatus || !ragAnswer || !ragSources) return;
+
+					ragStatus.textContent = "Loading...";
+					ragAnswer.textContent = "";
+					ragSources.textContent = "";
+
+					const res = await fetch("/api/ask_range", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ range, question })
+					});
+
+					const data = await res.json().catch(() => ({}));
+
+					if (!res.ok) {
+						ragStatus.textContent = data.error || "Ask failed";
+						return;
+					}
+
+					ragStatus.textContent = `Answered (window: ${data.start} to ${data.end})`;
+					ragAnswer.textContent = data.answer || "(no answer)";
+
+					const sources = Array.isArray(data.sources) ? data.sources : [];
+					if (!sources.length) {
+						ragSources.textContent = "(no sources returned)";
+					} else {
+						ragSources.textContent = sources.map((s, i) =>
+							`${i + 1}. ${s.date || "unknown date"}\n${s.snippet || ""}`
+						).join("\n\n---\n\n");
+					}
+				}
+
+				saveBtn.addEventListener("click", async () => {
+					const date = logDate.value;
+					const text = logText.value;
+					await saveEntry(date, text);
 				});
 
-				const data = await res.json().catch(() => ({}));
+				loadBtn.addEventListener("click", async () => {
+					const date = viewDate.value;
+					await loadEntry(date);
+				});
 
-				if (!res.ok) {
-				status.textContent = data.error || "Save failed";
-				return;
+				if (ragAsk && ragRange && ragQuestion) {
+					ragAsk.addEventListener("click", async () => {
+						const range = (ragRange.value || "").trim();
+						const question = (ragQuestion.value || "").trim();
+						if (!question) {
+							ragStatus.textContent = "Type a question first.";
+							return;
+						}
+						await askRange(range, question);
+					});
 				}
 
-				if (typeof data.entry === "string") {
-				logText.value = data.entry;
-				}
-
-				status.textContent = data.ai ? "AI explanation generated" : `Saved ${date}`;
-			}
-
-			saveBtn.addEventListener("click", async () => {
-				const date = logDate.value;
-				const text = logText.value;
-				await saveEntry(date, text);
-			});
-
-			loadBtn.addEventListener("click", async () => {
-				const date = viewDate.value;
-				await loadEntry(date);
-			});
-
-			loadEntry(viewDate.value);
+				loadEntry(viewDate.value);
 			})();
 			</script>
+	</body>
+</html>
