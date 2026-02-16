@@ -1,3 +1,9 @@
+const express = require("express");
+const app = express();
+
+app.use(express.json());
+app.use(express.static("public"));
+
 const Database = require("better-sqlite3");
 const db = new Database("research.db");
 
@@ -496,6 +502,6 @@ const server = http.createServer((req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });
