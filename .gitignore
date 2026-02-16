@@ -1,3 +1,10 @@
+HEAD
 node_modules
 .env
 *.db
+
+
+node_modules/
+.env
+*.log
+d369f0e4 (Ignore node_modules and secrets)
