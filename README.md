@@ -2,9 +2,21 @@
 
 ---
 
-This repository contains the full-stack web report platform for a biology research project conducted at Bugil Academy (South Korea) and Hwa Chong Institution (Singapore).
+This repository contains a full-stack web platform built to digitally document and analyze experimental biology research conducted at **Bugil Academy (South Korea)** and **Hwa Chong Institution (Singapore)**.
 
-The platform presents research objectives, methodology, experimental results, references, and a persistent experimental datalog system — enhanced with a Retrieval-Augmented AI assistant for intelligent interpretation of research entries. It is hosted on Render at https://webreport-bugilhci.onrender.com/.
+The system integrates structured experimental data storage with a **Retrieval-Augmented Generation (RAG)** AI assistant to provide context-aware scientific explanations of research logs.
+
+The application is containerized using **Docker** and deployed on **AWS Elastic Beanstalk**, demonstrating production-style cloud deployment of a full-stack AI-enabled web application.
+
+---
+
+## Live Deployment
+
+Hosted on AWS Elastic Beanstalk:
+
+[http://researchlog-env.<region>.elasticbeanstalk.com](http://researchlog-env.eba-pptyxixy.us-east-2.elasticbeanstalk.com/)
+
+---
 
 ## Technology Stack
 
@@ -20,9 +32,18 @@ The platform presents research objectives, methodology, experimental results, re
 
 ### AI Infrastructure
 - LangChain v1 modular packages  
-- MemoryVectorStore
+- MemoryVectorStore  
 - Retrieval chain (`@langchain/classic`)  
 - OpenAI SDK  
+
+### Cloud & Deployment
+- Docker (containerization)
+- AWS Elastic Beanstalk (cloud hosting)
+- Amazon EC2 (underlying compute)
+- IAM roles for secure environment configuration
+
+Experimented with local Kubernetes deployment using kind.
+
 
 <img width="1434" height="732" alt="Screenshot 2026-02-15 at 9 45 16 pm" src="https://github.com/user-attachments/assets/50b1ea37-697a-405b-85d4-04edb831ec0b" />
 <img width="1429" height="730" alt="Screenshot 2026-02-15 at 9 45 43 pm" src="https://github.com/user-attachments/assets/75e0699f-0ce5-4f7e-988c-c63dd24f2847" />
@@ -36,7 +57,7 @@ The platform presents research objectives, methodology, experimental results, re
 This web application was built to:
 
 - Digitally document experimental research logs  
-- Provide structured storage via a backend database  
+- Provide structured backend storage via a SQL database  
 - Enable dynamic querying of stored entries  
 - Integrate a context-aware AI assistant for scientific interpretation  
 
@@ -54,7 +75,7 @@ The embedded chatbot uses a modular retrieval pipeline:
 4. Retrieved documents are passed into a retrieval chain.
 5. The OpenAI LLM generates grounded explanations using retrieved context.
 
-This architecture ensures:
+### This architecture ensures:
 
 - Reduced hallucination  
 - Context-aware scientific explanations  
@@ -75,5 +96,20 @@ The `!!!` prefix routes the request through the retrieval chain instead of stand
 
 ---
 
-- OpenAI API key is stored via environment variables (`OPENAI_API_KEY`)
-- No API credentials are committed to the repository
+## Environment Configuration
+
+Sensitive credentials are managed securely:
+
+- `OPENAI_API_KEY` is stored via environment variables.
+- No API credentials are committed to the repository.
+- AWS IAM roles are used for secure cloud configuration.
+
+---
+
+## Containerization & Deployment
+
+The application is packaged using Docker:
+
+- Dockerfile defines runtime environment
+- Application image built locally
+- Deployed to AWS Elastic Beanstalk using Docker platform
