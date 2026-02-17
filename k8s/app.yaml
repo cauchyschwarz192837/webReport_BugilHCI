@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: researchlog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: researchlog
+  template:
+    metadata:
+      labels:
+        app: researchlog
+    spec:
+      containers:
+        - name: web
+          image: researchlog:dev
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: DB_PATH
+              value: "/data/research.db"
+          envFrom:
+            - secretRef:
+                name: researchlog-secrets
+          volumeMounts:
+            - name: db
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: db
+          persistentVolumeClaim:
+            claimName: researchlog-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: researchlog
+spec:
+  selector:
+    app: researchlog
+  ports:
+    - port: 80
+      targetPort: 3000

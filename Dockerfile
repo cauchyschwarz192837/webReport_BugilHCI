@@ -1,20 +1,15 @@
-# base image
 FROM node:20-alpine
 
-# set workdir
 WORKDIR /app
 
-# dependencies
 COPY package*.json ./
+RUN npm ci --omit=dev
 
-# install dependencies
-RUN npm install --omit=dev
-
-# copy remaining files
 COPY . .
 
-# this container intends to listen on this port
-EXPOSE 3001
+RUN mkdir -p /data
 
-# default command upon container start
+ENV PORT=3000
+EXPOSE 3000
+
 CMD ["node", "server.js"]

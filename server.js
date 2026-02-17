@@ -6,19 +6,15 @@ const app = express();
 
 app.use(express.json({ limit: "2mb" }));
 
-// Serve static files from repo root (keeps your existing paths)
 app.use(express.static(__dirname));
 
-// Optional mounts if you already use these absolute paths in HTML
 app.use("/css", express.static(path.join(__dirname, "css")));
 app.use("/js", express.static(path.join(__dirname, "js")));
 app.use("/images", express.static(path.join(__dirname, "images")));
 app.use("/assets", express.static(path.join(__dirname, "assets")));
 
-// ---------- DB ----------
 const Database = require("better-sqlite3");
-// Use absolute path so Render always finds it
-const db = new Database(path.join(__dirname, "research.db"));
+const db = new Database(process.env.DB_PATH || path.join(__dirname, "research.db"));
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS logs (
@@ -53,7 +49,6 @@ function clip(s, max = 3000) {
   return s.length > max ? s.slice(0, max) + "\n...[truncated]" : s;
 }
 
-// ---------- OpenAI + LangChain ----------
 const OpenAI = require("openai");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -158,14 +153,10 @@ async function explainLogWithAI({ date, logText, instruction }) {
   return resp.output_text || "(no response)";
 }
 
-// ---------- API ROUTES ----------
-
-// Home
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
-// Dates list
 app.get("/api/dates", (req, res) => {
   try {
     res.json(getAllDates());
@@ -175,7 +166,6 @@ app.get("/api/dates", (req, res) => {
   }
 });
 
-// Load log by date
 app.get("/api/log", (req, res) => {
   try {
     const date = req.query.date;
@@ -190,7 +180,6 @@ app.get("/api/log", (req, res) => {
   }
 });
 
-// Save log OR "!!!" explain existing log
 app.post("/api/log", async (req, res) => {
   try {
     const date = req.body?.date;
@@ -220,7 +209,6 @@ app.post("/api/log", async (req, res) => {
       return res.json({ ok: true, date, entry: explanation, ai: true });
     }
 
-    // Normal save/update
     db.prepare(`
       INSERT INTO logs (date, text) VALUES (?, ?)
       ON CONFLICT(date) DO UPDATE SET text = excluded.text
@@ -233,7 +221,6 @@ app.post("/api/log", async (req, res) => {
   }
 });
 
-// Range RAG ask
 app.post("/api/ask_range", async (req, res) => {
   try {
     const range = (req.body?.range || "").toString();
@@ -258,24 +245,20 @@ app.post("/api/ask_range", async (req, res) => {
       });
     }
 
-    // Docs
     const docs = rows.map(r => new Document({
       pageContent: `[${r.date}]\n${r.text}`,
       metadata: { date: r.date },
     }));
 
-    // Split
     const splitter = new RecursiveCharacterTextSplitter({
       chunkSize: 1200,
       chunkOverlap: 150,
     });
     const chunkedDocs = await splitter.splitDocuments(docs);
 
-    // Vector store + retriever
     const vectorStore = await MemoryVectorStore.fromDocuments(chunkedDocs, lcEmbeddings);
     const retriever = vectorStore.asRetriever({ k: 8 });
 
-    // RAG chain
     const { combineDocsChain } = await getRagChain();
     const ragChain = await createRetrievalChain({ retriever, combineDocsChain });
 
@@ -303,7 +286,6 @@ app.post("/api/ask_range", async (req, res) => {
   }
 });
 
-// General chat (sessioned)
 const sessions = new Map();
 app.post("/api/chat", async (req, res) => {
   try {
@@ -339,13 +321,11 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-// 404 logger
 app.use((req, res) => {
   console.log("404:", req.method, req.url);
   res.status(404).send("Not found");
 });
 
-// Listen
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
